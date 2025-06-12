@@ -18,19 +18,22 @@ integrating over the entire space-time domain:
 import numpy as np
 import ufl
 
-from dolfinx.fem import (Constant, Function, functionspace, dirichletbc,
-                         form)
+from dolfinx.fem import (Constant, Function, functionspace, dirichletbc, form, assemble_scalar, Expression)
 from dolfinx.fem.petsc import LinearProblem
 from dolfinx.fem import locate_dofs_geometrical
+from dolfinx import geometry
+from dolfinx import plot
+from dolfinx import default_scalar_type
 from dolfinx.io import VTKFile
 from dolfinx import mesh 
 from mpi4py import MPI
 import matplotlib.pyplot as plt
 import os
+import pyvista as pv
 
 # --- 1. Define problem parameters ---
-T = 2.0           # Total simulation time
-alpha_val = 0.005 # Thermal diffusivity
+T = 1.0           # Total simulation time
+alpha_val = 1.0 # Thermal diffusivity
 
 # --- 2. Create the space-time mesh and define function space ---
 comm = MPI.COMM_WORLD
@@ -94,57 +97,71 @@ print("Solve complete.")
 
 # --- 6. Save and plot results ---
 # Save the full 2D space-time solution to a VTK file for ParaView
-results_dir = 'heat_spacetime_fenicsx'
-if not os.path.exists(results_dir):
-    os.makedirs(results_dir)
+# results_dir = 'heat_spacetime_fenicsx'
+# if not os.path.exists(results_dir):
+#     os.makedirs(results_dir)
 
-with VTKFile(comm, os.path.join(results_dir, "solution.pvd"), "w") as vtk:
-    vtk.write_function(uh, 0.0)
+# with VTKFile(comm, os.path.join(results_dir, "solution.pvd"), "w") as vtk:
+#     vtk.write_function(uh, 0.0)
 
 # --- 7. Plot the solution at the final time T ---
 print("Extracting and plotting solution at final time T...")
 # We need to evaluate the 2D solution `uh` on the line where t=T.
 # Create points on the final time slice
-num_plot_points = 500
-x_plot = np.linspace(0, 1, num_plot_points)
-t_final_points = np.zeros((num_plot_points, 3))
-t_final_points[:, 0] = x_plot
-t_final_points[:, 1] = T
+tol = 0.001  # Avoid hitting the outside of the domain
+xp = np.linspace(0 + tol, 1 - tol, 101)
+points = np.zeros((3, 101))
+points[0] = xp
+points[1] = (1-tol)*np.ones_like(xp)  # Set t = tol (close to zero)
+u_values = []
 
-# # Plot the extracted 1D solution
-# plt.figure(figsize=(10, 6))
-# plt.plot(np.array(points_on_proc)[:, 0], u_final_values)
-# plt.title(f'Space-Time FEM: Temperature distribution at t = {T:.2f}')
-# plt.xlabel('Position (x)')
-# plt.ylabel('Temperature (u)')
-# plt.grid(True)
-# plt.show()
+bb_tree = geometry.bb_tree(mesh, mesh.topology.dim)
 
-# V2 = fem.functionspace(domain, ("Lagrange", 2))
-# uex = fem.Function(V2)
-# uex.interpolate(fem.Expression(u_ex, V2.element.interpolation_points()))
+cells = []
+points_on_proc = []
+# Find cells whose bounding-box collide with the the points
+cell_candidates = geometry.compute_collisions_points(bb_tree, points.T)
+# Choose one of the cells that contains the point
+colliding_cells = geometry.compute_colliding_cells(mesh, cell_candidates, points.T)
+for i, point in enumerate(points.T):
+    if len(colliding_cells.links(i)) > 0:
+        points_on_proc.append(point)
+        cells.append(colliding_cells.links(i)[0])
 
-# L2_error = fem.form(ufl.inner(uh - uex, uh - uex) * ufl.dx)
-# error_local = fem.assemble_scalar(L2_error)
-# error_L2 = numpy.sqrt(domain.comm.allreduce(error_local, op=MPI.SUM))
+points_on_proc = np.array(points_on_proc, dtype=np.float64)
+u_values = uh.eval(points_on_proc, cells)
 
-# error_max = numpy.max(numpy.abs(uD.x.array-uh.x.array))
-# # Only print the error on one process
-# if domain.comm.rank == 0:
-#     print(f"Error_L2 : {error_L2:.2e}")
-#     print(f"Error_max : {error_max:.2e}")
+import matplotlib.pyplot as plt
+fig = plt.figure()
+plt.plot(points_on_proc[:, 0], u_values, "k", linewidth=2, label="u")
+#plt.plot(points_on_proc[:, 1], p_values, "b--", linewidth=2, label="Load")
+plt.grid(True)
+plt.xlabel("y")
+plt.legend()
+# If run in parallel as a python file, we save a plot per processor
+plt.savefig(f"membrane_rank{MPI.COMM_WORLD.rank:d}.png")
+plt.show()
 
 
-# print(pv.global_theme.jupyter_backend)
+V2 = functionspace(mesh, ("Lagrange", 2))
+uex = Function(V2)
+uex.interpolate(lambda x: 1 + x[0]**2 + 2 * x[1]**2)  # TODO
+uex.interpolate(Expression(uex, V2.element.interpolation_points()))
 
-# print("Plotter 1...")
-# u_topology, u_cell_types, u_geometry = plot.vtk_mesh(V)
-# u_grid = pv.UnstructuredGrid(u_topology, u_cell_types, u_geometry)
-# u_grid.point_data["u"] = uh.x.array.real
-# u_grid.set_active_scalars("u")
-# u_plotter = pv.Plotter()
-# u_plotter.add_mesh(u_grid, show_edges=True)
-# u_plotter.view_xy()
-# if not pv.OFF_SCREEN:
-#     u_plotter.show()
+L2_error = form(ufl.inner(uh - uex, uh - uex) * ufl.dx)
+error_local = assemble_scalar(L2_error)
+error_L2 = np.sqrt(mesh.comm.allreduce(error_local, op=MPI.SUM))
+
+print(pv.global_theme.jupyter_backend)
+
+print("Plotter 1...")
+u_topology, u_cell_types, u_geometry = plot.vtk_mesh(V)
+u_grid = pv.UnstructuredGrid(u_topology, u_cell_types, u_geometry)
+u_grid.point_data["u"] = uh.x.array.real
+u_grid.set_active_scalars("u")
+u_plotter = pv.Plotter()
+u_plotter.add_mesh(u_grid, show_edges=True)
+u_plotter.view_xy()
+if not pv.OFF_SCREEN:
+    u_plotter.show()
 

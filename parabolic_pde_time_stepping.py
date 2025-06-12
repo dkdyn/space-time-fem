@@ -28,10 +28,10 @@ import matplotlib.pyplot as plt
 import os
 
 # --- 1. Define problem parameters ---
-T = 2.0           # Total simulation time
+T = 1.0           # Total simulation time
 num_steps = 100   # Number of time steps
 dt_val = T / num_steps # Time step size
-alpha_val = 0.005     # Thermal diffusivity
+alpha_val = 1.0     # Thermal diffusivity
 
 # --- 2. Create mesh and define function space ---
 comm = MPI.COMM_WORLD
