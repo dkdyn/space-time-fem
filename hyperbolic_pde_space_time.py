@@ -1,42 +1,3 @@
-# Author: Gemini
-# Date: June 11, 2025
-# Description:
-# This script provides a minimal implementation of the space-time finite element
-# method (FEM) for the one-dimensional wave equation using FEniCSx.
-# The formulation includes velocity as an additional variable to allow for
-# the straightforward prescription of initial conditions in time.
-#
-# Mathematical Formulation:
-# -------------------------
-# The 1D wave equation is given by:
-#
-#   d^2u/dt^2 - c^2 * d^2u/dx^2 = f   in (0, L) x (0, T)
-#
-# where u is the displacement, c is the wave speed, f is a source term,
-# x is the spatial coordinate, and t is the time coordinate.
-#
-# To apply initial conditions, we introduce the velocity v = du/dt.
-# The second-order PDE is then rewritten as a system of two first-order PDEs:
-#
-#   1. du/dt - v = 0
-#   2. dv/dt - c^2 * d^2u/dx^2 = f
-#
-# The space-time domain is Omega = (0, L) x (0, T).
-#
-# Weak Form:
-# -----------
-# We define a mixed function space W = V x V, where V is the function space
-# for u and v. Let (w_u, w_v) be the test functions corresponding to (u, v).
-#
-# After multiplying the equations by test functions and integrating by parts
-# over the space-time domain Omega, the variational problem is:
-# Find (u, v) in W such that for all (w_u, w_v) in W:
-#
-#   Integral_Omega( (du/dt * w_u - v * w_u) * dV ) = 0
-#   Integral_Omega( (dv/dt * w_v + c^2 * du/dx * dw_v/dx) * dV ) = Integral_Omega( f * w_v * dV )
-#
-# We solve this coupled system over the entire space-time domain at once.
-
 import dolfinx
 from dolfinx.fem.petsc import LinearProblem
 from dolfinx import fem, mesh, plot, geometry
@@ -47,20 +8,21 @@ import ufl
 import numpy as np
 # Import element creation functions from basix.ufl
 from basix.ufl import element, mixed_element
+import matplotlib.pyplot as plt
+import pyvista as pv
+from dolfinx.mesh import locate_entities_boundary, meshtags, MeshTags
 
 # --- 1. Problem Parameters ---
-L = 1.0  # Length of the spatial domain
-T = 1.0  # Total time
-#c = 1.0  # Wave speed
-nx = 100  # Number of elements in space
+c = 1.0  # Wave speed
+nx = 20  # Number of elements in space
 # Increase nt to satisfy the CFL condition (dt < dx/c)
 # dx = 1/50 = 0.02. dt should be smaller. T/nt < dx/c -> 2/nt < 0.02 -> nt > 100.
-nt = 100 # Number of elements in time
+nt = 50 # Number of elements in time
 
 # --- 2. Create the Space-Time Mesh ---
 # The domain is a 2D rectangle [0, L] x (0, T)
 domain = mesh.create_rectangle(MPI.COMM_WORLD,
-                               [np.array([0, 0]), np.array([L, T])],
+                               [np.array([0, 0]), np.array([1.0, 1.0])],
                                [nx, nt],
                                mesh.CellType.quadrilateral)
 
@@ -71,52 +33,68 @@ x = ufl.SpatialCoordinate(domain)
 
 # --- 3. Define the Function Space ---
 # We use a mixed function space for (u, v) using basix.ufl
-P1 = element("Lagrange", domain.basix_cell(), 2)
+P1 = element("Lagrange", domain.basix_cell(), 1)
 W_element = mixed_element([P1, P1])
 W = fem.functionspace(domain, W_element)
-U = W.sub(0).collapse()[0]  # Function space for u
-V = W.sub(1).collapse()[0]  # Function space for u
 
 # Define Trial and Test functions
 (u, v) = ufl.TrialFunctions(W)
 (Du, Dv) = ufl.TestFunctions(W)
 
 
-# Define the source term. fem.Constant requires the domain as the first argument.
-f = fem.Constant(domain, dolfinx.default_scalar_type(0.0)) # Source term
-
+#dx = ufl.Measure("dx", domain=domain)
 # Equation 1: du/dt - v = 0
-a1 = (u.dx(1) - v) * Dv * ufl.dx
+a1 = (u.dx(1) * Dv - v * Dv) * ufl.dx
 L1 = fem.Constant(domain, dolfinx.default_scalar_type(0.0)) * Dv * ufl.dx
 
 # Equation 2: dv/dt - c^2 * d^2u/dx^2 = f
 # Integrate by parts in space: -c^2 * d^2u/dx^2 -> c^2 * du/dx * dw_v/dx
-a2 = (v.dx(1) * Du + u.dx(0) * Du.dx(0)) * ufl.dx
+f = fem.Constant(domain, dolfinx.default_scalar_type(0.0)) # Source term
+a2 = (v.dx(1) * Du + c**2 * u.dx(0) * Du.dx(0)) * ufl.dx
 L2 = f * Du * ufl.dx
 
+# Stabilization term
+# delta = 0.01  # small stabilization parameter
+# a_stab = delta * ufl.inner(ufl.grad(u), ufl.grad(Du)) * ufl.dx
+
 # Combine into a single system
-a = a1 + a2
+a = a1 + a2 
 L_form = L1 + L2
 
 
-# Locate DOFs for u (component 0) and v (component 1) at x=0 and x=L
-dofs_u_left = locate_dofs_geometrical(U, lambda x: np.isclose(x[0], 0))
-dofs_u_right = locate_dofs_geometrical(U, lambda x: np.isclose(x[0], 1))
-dofs_u_initial = locate_dofs_geometrical(U, lambda x: np.isclose(x[1], 0))
-#dofs_v_left = locate_dofs_geometrical(V, lambda x: np.isclose(x[0], 0))
-#dofs_v_right = locate_dofs_geometrical(V, lambda x: np.isclose(x[0], 1))
-dofs_v_initial = locate_dofs_geometrical(V, lambda x: np.isclose(x[1], 0))
+# For x=0 (left boundary)
+facets_left = locate_entities_boundary(domain, 1, lambda x: np.isclose(x[0], 0.0))
+dofs_u_left = fem.locate_dofs_topological(W.sub(0), 1, facets_left)
 
-u_init = fem.Function(U)
-u_init.interpolate(lambda x: np.sin(np.pi * x[0]))
+# For x=1 (right boundary)
+facets_right = locate_entities_boundary(domain, 1, lambda x: np.isclose(x[0], 1.0))
+dofs_u_right = fem.locate_dofs_topological(W.sub(0), 1, facets_right)
+
+# For t=0 (initial time)
+facets_t0 = locate_entities_boundary(domain, 1, lambda x: np.isclose(x[1], 0.0))
+dofs_u_initial = fem.locate_dofs_topological(W.sub(0), 1, facets_t0)
+dofs_v_initial = fem.locate_dofs_topological(W.sub(1), 1, facets_t0)
+
+# For t=1 (final time)
+facets_t1 = locate_entities_boundary(domain, 1, lambda x: np.isclose(x[1], 1.0))
+dofs_v_final = fem.locate_dofs_topological(W.sub(1), 1, facets_t1)
+
+
+u_init = fem.Function(W.sub(0).collapse()[0])
+u_init.interpolate(lambda x: np.sin(np.pi * x[0]))    # x[0]*(1-x[0])
+
+# v_init = fem.Function(W.sub(1).collapse()[0])
+# v_init.interpolate(lambda x: np.sin(np.pi * x[0]))
+# v_final = fem.Function(W.sub(1).collapse()[0])
+# v_final.interpolate(lambda x: -np.sin(np.pi * x[0]))
 
 # Create Dirichlet BCs for u and v at both boundaries
 bc_u_left = dirichletbc(default_scalar_type(0), dofs_u_left, W.sub(0))
 bc_u_right = dirichletbc(default_scalar_type(0), dofs_u_right, W.sub(0))
 bc_u_initial = dirichletbc(u_init, dofs_u_initial)
-#bc_v_left = dirichletbc(default_scalar_type(0), dofs_v_left, W.sub(1))
-#bc_v_right = dirichletbc(default_scalar_type(0), dofs_v_right, W.sub(1))
 bc_v_initial = dirichletbc(default_scalar_type(0), dofs_v_initial, W.sub(1))
+#bc_v_initial = dirichletbc(v_init, dofs_v_initial)
+#bc_v_final = dirichletbc(v_final, dofs_v_final)
 
 # Collect all BCs in a list
 bcs = [bc_u_left, bc_u_right, bc_u_initial, bc_v_initial]
@@ -148,45 +126,90 @@ print("v mean:", np.nanmean(v_sol.x.array))
 print("v contains NaN:", np.isnan(v_sol.x.array).any())
 
 
-# post# --- 4. Post-processing with PyVista ---
-import pyvista as pv
-import numpy as np
-
-# Extract the u component (displacement) from the mixed solution
-u_sol = w_sol.sub(0).collapse()
-
-# Get the coordinates of the mesh nodes
-coords = u_sol.function_space.mesh.geometry.x
+# Get the coordinates of all DOFs for u
+u_coords = u_sol.function_space.tabulate_dof_coordinates()
 u_vals = u_sol.x.array
 
-# Create a PyVista structured grid
-# Assumes a structured mesh: sort coordinates for grid construction
-sort_idx = np.lexsort((coords[:, 1], coords[:, 0]))
-coords_sorted = coords[sort_idx]
-u_sorted = u_vals[sort_idx]
+# Select DOFs at t=0 (within a tolerance)
+tol = 1e-10
+mask_t0 = np.abs(u_coords[:, 1]) < tol
+x_t0 = u_coords[mask_t0, 0]
+u_t0 = u_vals[mask_t0]
 
-# Get unique x and t values
-x_unique = np.unique(coords_sorted[:, 0])
-t_unique = np.unique(coords_sorted[:, 1])
+# Sort by x for a proper line plot
+sort_idx = np.argsort(x_t0)
+x_t0_sorted = x_t0[sort_idx]
+u_t0_sorted = u_t0[sort_idx]
 
-# Reshape u to (nx+1, nt+1) for grid
-nx_pts = len(x_unique)
-nt_pts = len(t_unique)
-u_grid = u_sorted.reshape((nx_pts, nt_pts))
+# Compute the initial condition for comparison
+u_init_exact = np.sin(np.pi * x_t0_sorted)
 
-# Create the meshgrid for plotting
-X, T = np.meshgrid(x_unique, t_unique, indexing='ij')
+# Plot
+plt.figure(figsize=(7, 4))
+plt.plot(x_t0_sorted, u_t0_sorted, 'o-', label="FEM $u(x, t=0)$")
+plt.plot(x_t0_sorted, u_init_exact, '--', label="Initial $\sin(\pi x)$")
+plt.xlabel("x")
+plt.ylabel("u(x, t=0)")
+plt.legend()
+plt.title("Displacement at $t=0$ vs Initial Condition")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
 
-# Create a PyVista grid
-grid = pv.StructuredGrid()
-grid.points = np.c_[X.ravel(), T.ravel(), np.zeros(X.size)]
-grid.dimensions = [nx_pts, nt_pts, 1]
-grid["u"] = u_grid.ravel(order="F")  # Fortran order for PyVista
+# Get the coordinates of all DOFs for v
+v_coords = v_sol.function_space.tabulate_dof_coordinates()
+v_vals = v_sol.x.array
 
-# Plot the contour
-plotter = pv.Plotter()
-plotter.add_mesh(grid, scalars="u", cmap="viridis", show_edges=False)
-plotter.view_xy()
-plotter.add_axes()
-plotter.show_grid()
-plotter.show(title="Displacement u(x, t) contour")
+# Select DOFs at t=0 (within a tolerance)
+tol = 1e-10
+mask_t0_v = np.abs(v_coords[:, 1]) < tol
+x_t0_v = v_coords[mask_t0_v, 0]
+v_t0 = v_vals[mask_t0_v]
+
+# Sort by x for a proper line plot
+sort_idx_v = np.argsort(x_t0_v)
+x_t0_v_sorted = x_t0_v[sort_idx_v]
+v_t0_sorted = v_t0[sort_idx_v]
+
+# Compute the initial condition for comparison (if you have one, e.g., v=0)
+v_init_exact = np.zeros_like(x_t0_v_sorted)
+
+# Plot
+plt.figure(figsize=(7, 4))
+plt.plot(x_t0_v_sorted, v_t0_sorted, 'o-', label="FEM $v(x, t=0)$")
+plt.plot(x_t0_v_sorted, v_init_exact, '--', label="Initial $v(x,0)=0$")
+plt.xlabel("x")
+plt.ylabel("v(x, t=0)")
+plt.legend()
+plt.title("Velocity at $t=0$ vs Initial Condition")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+print("Plotter u")
+u_topology, u_cell_types, u_geometry = plot.vtk_mesh(W.sub(0).collapse()[0])
+u_grid = pv.UnstructuredGrid(u_topology, u_cell_types, u_geometry)
+u_grid.point_data["u"] = u_sol.x.array.real
+u_grid.set_active_scalars("u")
+u_plotter = pv.Plotter()
+u_plotter.add_mesh(u_grid, show_edges=True)
+u_plotter.view_xy()
+if not pv.OFF_SCREEN:
+    u_plotter.show()
+
+# Get the parent mixed space DOF coordinates
+parent_coords = W.sub(1).collapse()[0].tabulate_dof_coordinates()
+
+# Get the dofmap from the subspace to the parent space
+dofmap = W.sub(0).dofmap.list.copy()
+
+# Map the subspace DOFs at t=0 to parent DOFs
+parent_dofs_u_initial = dofmap[dofs_u_initial]
+
+# Now get the coordinates for the initial condition DOFs
+coords_init = parent_coords[parent_dofs_u_initial]
+print("Initial condition coordinates (should be t=0):")
+print(coords_init)
+
+
+
