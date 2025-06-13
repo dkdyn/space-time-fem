@@ -1,6 +1,8 @@
 wave_normal.py
 Wave_Normal.ipynb
 
+*.csv
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

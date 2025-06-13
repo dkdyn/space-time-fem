@@ -37,8 +37,8 @@ alpha_val = 1.0 # Thermal diffusivity
 
 # --- 2. Create the space-time mesh and define function space ---
 comm = MPI.COMM_WORLD
-nx = 100 # Number of spatial elements
-nt = 100 # Number of temporal elements
+nx = 4 # Number of spatial elements
+nt = 8 # Number of temporal elements
 
 # Create a 2D mesh for the space-time domain: (x, t) in [0,1]x[0,T]
 mesh = mesh.create_rectangle(comm,
@@ -105,14 +105,15 @@ print("Solve complete.")
 #     vtk.write_function(uh, 0.0)
 
 # --- 7. Plot the solution at the final time T ---
-print("Extracting and plotting solution at final time T...")
+#print("Extracting and plotting solution at final time T...")
 # We need to evaluate the 2D solution `uh` on the line where t=T.
 # Create points on the final time slice
-tol = 0.001  # Avoid hitting the outside of the domain
-xp = np.linspace(0 + tol, 1 - tol, 101)
-points = np.zeros((3, 101))
-points[0] = xp
-points[1] = (1-tol)*np.ones_like(xp)  # Set t = tol (close to zero)
+tol = 0.00  # Avoid hitting the outside of the domain
+xp = np.linspace(0 + tol, 1 - tol, 9)  # actually time points 
+points = np.zeros((3, 9))
+points[0] = 0.5*np.ones_like(xp)  #
+points[1] = xp
+
 u_values = []
 
 bb_tree = geometry.bb_tree(mesh, mesh.topology.dim)
@@ -133,35 +134,39 @@ u_values = uh.eval(points_on_proc, cells)
 
 import matplotlib.pyplot as plt
 fig = plt.figure()
-plt.plot(points_on_proc[:, 0], u_values, "k", linewidth=2, label="u")
+t_values = points_on_proc[:, 1]
+plt.plot(t_values, u_values, "k", linewidth=2, label="u")
 #plt.plot(points_on_proc[:, 1], p_values, "b--", linewidth=2, label="Load")
 plt.grid(True)
 plt.xlabel("y")
 plt.legend()
 # If run in parallel as a python file, we save a plot per processor
-plt.savefig(f"membrane_rank{MPI.COMM_WORLD.rank:d}.png")
+#plt.savefig(f"membrane_rank{MPI.COMM_WORLD.rank:d}.png")
 plt.show()
+
+
 
 
 V2 = functionspace(mesh, ("Lagrange", 2))
 uex = Function(V2)
-uex.interpolate(lambda x: 1 + x[0]**2 + 2 * x[1]**2)  # TODO
+uex.interpolate(lambda x: np.sin(np.pi*x[0])*np.exp(-(np.pi**2)*x[1]))  
 uex.interpolate(Expression(uex, V2.element.interpolation_points()))
 
 L2_error = form(ufl.inner(uh - uex, uh - uex) * ufl.dx)
 error_local = assemble_scalar(L2_error)
 error_L2 = np.sqrt(mesh.comm.allreduce(error_local, op=MPI.SUM))
 
-print(pv.global_theme.jupyter_backend)
+# Save t_values and u_values to a CSV file
+np.savetxt("results_para_space_time.csv", np.column_stack([t_values, u_values]), delimiter=",", header="t,u", comments='')
 
-print("Plotter 1...")
-u_topology, u_cell_types, u_geometry = plot.vtk_mesh(V)
-u_grid = pv.UnstructuredGrid(u_topology, u_cell_types, u_geometry)
-u_grid.point_data["u"] = uh.x.array.real
-u_grid.set_active_scalars("u")
-u_plotter = pv.Plotter()
-u_plotter.add_mesh(u_grid, show_edges=True)
-u_plotter.view_xy()
-if not pv.OFF_SCREEN:
-    u_plotter.show()
+# print("Plotter 1...")
+# u_topology, u_cell_types, u_geometry = plot.vtk_mesh(V)
+# u_grid = pv.UnstructuredGrid(u_topology, u_cell_types, u_geometry)
+# u_grid.point_data["u"] = uh.x.array.real
+# u_grid.set_active_scalars("u")
+# u_plotter = pv.Plotter()
+# u_plotter.add_mesh(u_grid, show_edges=True)
+# u_plotter.view_xy()
+# if not pv.OFF_SCREEN:
+#     u_plotter.show()
 

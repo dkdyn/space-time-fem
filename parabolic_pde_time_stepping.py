@@ -15,8 +15,8 @@ mid-point (Crank-Nicolson) rule for time.
 """
 import numpy as np
 import ufl
-import basix.ufl
-
+#import basix.ufl
+from dolfinx import geometry
 from dolfinx.fem import (Constant, Function, functionspace, dirichletbc,
                          form)
 from dolfinx.fem.petsc import LinearProblem
@@ -29,13 +29,13 @@ import os
 
 # --- 1. Define problem parameters ---
 T = 1.0           # Total simulation time
-num_steps = 100   # Number of time steps
+num_steps = 8   # Number of time steps
 dt_val = T / num_steps # Time step size
 alpha_val = 1.0     # Thermal diffusivity
 
 # --- 2. Create mesh and define function space ---
 comm = MPI.COMM_WORLD
-nx = 100 # Number of elements in the mesh
+nx = 4 # Number of elements in the mesh
 mesh = create_interval(comm, nx, [0, 1])
 
 # Use Lagrange polynomials of degree 1 for the function space
@@ -88,21 +88,35 @@ problem_L = form(L)
 
 # --- 6. Set up for time-stepping and results storage ---
 # Create a directory for results if it doesn't exist
-if not os.path.exists('heat_transient_1d_fenicsx'):
-    os.makedirs('heat_transient_1d_fenicsx')
+#if not os.path.exists('heat_transient_1d_fenicsx'):
+#    os.makedirs('heat_transient_1d_fenicsx')
 
 # Create VTK file for saving the solution
-vtkfile = VTKFile(comm, "heat_transient_1d_fenicsx/solution.pvd", "w")
+#vtkfile = VTKFile(comm, "heat_transient_1d_fenicsx/solution.pvd", "w")
 
 # Create the solution function `uh` which will be solved for
 uh = Function(V)
 uh.name = "u"
 
 # Save initial state
-vtkfile.write_function(u_n, 0.0)
+#vtkfile.write_function(u_n, 0.0)
 
 # --- 7. Set up the solver and time-stepping loop ---
 problem = LinearProblem(problem_a, problem_L, bcs=bcs, u=uh, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+
+t_values = []
+u_values = []
+t_values.append(0.0)
+u_values.append(1.0)
+point = np.array([[0.5,0,0]], dtype=np.float64)  # shape (1, 1) for 1D
+
+# Build a bounding box tree for the mesh
+bb_tree = geometry.bb_tree(mesh, mesh.topology.dim)
+
+# Find the cell that contains the point
+cell_candidates = geometry.compute_collisions_points(bb_tree, point)
+colliding_cells = geometry.compute_colliding_cells(mesh, cell_candidates, point)
+cell = colliding_cells.links(0)[0]
 
 t = 0.0
 print("Starting time-stepping loop...")
@@ -113,13 +127,24 @@ for n in range(num_steps):
     problem.solve()
 
     # Save solution to file
-    vtkfile.write_function(uh, t)
+    #vtkfile.write_function(uh, t)
 
     # Update the previous solution for the next time step
     u_n.x.array[:] = uh.x.array
 
+    t_values.append(t)
+    u_value = u_n.eval(point, np.array([cell], dtype=np.int32))
+    u_values.append(u_value[0]) 
+
 print("Simulation finished.")
-vtkfile.close()
+#vtkfile.close()
+
+plt.plot(t_values, u_values, "k", linewidth=2, label="u")
+plt.show()
+
+# Save t_values and u_values to a CSV file
+np.savetxt("results_para_time_stepping.csv", np.column_stack([t_values, u_values]), delimiter=",", header="t,u", comments='')
+
 
 # --- 8. Plot the final solution ---
 # Get the coordinates of the degrees of freedom for plotting

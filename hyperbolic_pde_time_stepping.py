@@ -1,4 +1,5 @@
 import dolfinx
+from dolfinx import geometry
 from dolfinx.fem import Function, form
 from dolfinx.fem.petsc import LinearProblem
 from dolfinx.mesh import create_interval
@@ -10,8 +11,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 Lx = 1.0  # Length of the domain
-Nx = 100  # Number of spatial cells
-dt = 0.001  # Time step size
+Nx = 4  # Number of spatial cells
+dt = 1.0/8.0  # Time step size
 T = 1.0  # Total simulation time
 c = 1.0  # Wave speed
 
@@ -85,6 +86,19 @@ t = 0.0
 # Create VTK writer for visualization
 #vtx_writer = VTXWriter(mesh.comm, output_filepath, u_n, engine="BP4")
 #vtx_writer.write(t)
+t_values = []
+u_values = []
+t_values.append(0.0)
+u_values.append(1.0)
+point = np.array([[0.5,0,0]], dtype=np.float64)  # shape (1, 1) for 1D
+
+# Build a bounding box tree for the mesh
+bb_tree = geometry.bb_tree(mesh, mesh.topology.dim)
+
+# Find the cell that contains the point
+cell_candidates = geometry.compute_collisions_points(bb_tree, point)
+colliding_cells = geometry.compute_colliding_cells(mesh, cell_candidates, point)
+cell = colliding_cells.links(0)[0]
 
 print(f"Starting simulation with {num_steps} steps...")
 for i in range(num_steps):
@@ -99,6 +113,9 @@ for i in range(num_steps):
     u_n_minus_1.x.array[:] = u_n.x.array
     u_n.x.array[:] = u_n_plus_1.x.array
 
+    t_values.append(t)
+    u_value = u_n.eval(point, np.array([cell], dtype=np.int32))
+    u_values.append(u_value[0]) 
     # Write solution to file
     #if i % 10 == 0:  # Write every 10 steps for efficiency
     #    vtx_writer.write(t)
@@ -108,6 +125,9 @@ for i in range(num_steps):
 #print("Simulation finished.")
 # To visualize the results, you can use ParaView and open the "wave_solution_leapfrog_linearproblem.bp" file.
 
-plt.plot(u_n.x.array)
+plt.plot(t_values, u_values, "k", linewidth=2, label="u")
+#plt.plot(u_n.x.array)
 plt.show()
+
+np.savetxt("results_hyper_time_stepping.csv", np.column_stack([t_values, u_values]), delimiter=",", header="t,u", comments='')
 
