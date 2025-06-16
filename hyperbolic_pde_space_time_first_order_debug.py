@@ -1,3 +1,8 @@
+"""
+TODO
+    try vector IC
+"""
+
 from mpi4py import MPI
 import ufl
 from dolfinx import fem, mesh, plot, default_scalar_type
@@ -29,7 +34,7 @@ x = ufl.SpatialCoordinate(domain)
 
 
 # --- 3. Define the Function Space ---
-P1 = element("Lagrange", domain.basix_cell(), 1)
+P1 = element("Lagrange", domain.basix_cell(), 2)
 W_element = mixed_element([P1, P1])
 W = fem.functionspace(domain, W_element)
 
@@ -61,24 +66,24 @@ dofs_u_right = fem.locate_dofs_topological(W.sub(0), 1, facets_right)
 
 # For t=0 (initial time)
 facets_t0 = locate_entities_boundary(domain, 1, lambda x: np.isclose(x[1], 0.0))
-dofs_u_initial = fem.locate_dofs_topological(W.sub(0), 1, facets_t0)
-dofs_v_initial = fem.locate_dofs_topological(W.sub(1), 1, facets_t0)
+
+dofs_uv_initial = fem.locate_dofs_topological(W, 1, facets_t0)
 
 # For t=1 (final time)
 #facets_t1 = locate_entities_boundary(domain, 1, lambda x: np.isclose(x[1], 1.0))
 #dofs_v_final = fem.locate_dofs_topological(W.sub(1), 1, facets_t1)
 
-u_init = fem.Function(W.sub(0).collapse()[0])
-u_init.interpolate(lambda x: np.sin(np.pi * x[0]))    # x[0]*(1-x[0])
+uv_init = fem.Function(W)
+uv_init.interpolate(lambda x: np.vstack((np.sin(np.pi * x[0]),np.sin(np.pi * x[0]))))    # x[0]*(1-x[0])
 
 # Create Dirichlet BCs for u and v at both boundaries
 bc_u_left = dirichletbc(default_scalar_type(0), dofs_u_left, W.sub(0))
 bc_u_right = dirichletbc(default_scalar_type(0), dofs_u_right, W.sub(0))
-bc_u_initial = dirichletbc(u_init, dofs_u_initial)
-bc_v_initial = dirichletbc(default_scalar_type(0), dofs_v_initial, W.sub(1))
+bc_uv_initial = dirichletbc(uv_init, dofs_uv_initial)
+#bc_v_initial = dirichletbc(default_scalar_type(0), dofs_v_initial, W.sub(1))
 
 # Collect all BCs in a list
-bcs = [bc_u_left, bc_u_right, bc_u_initial, bc_v_initial]
+bcs = [bc_u_left, bc_u_right, bc_uv_initial]
 
 # 1. Set up the linear problem
 problem = LinearProblem(a, L_form, bcs=bcs, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})

@@ -22,7 +22,7 @@ t = np.linspace(0, 1, 100)
 u = np.exp(-(np.pi**2) * t)
 
 plt.plot(t, u, "gray", linewidth=2, label="exact solution")
-plt.plot(ts_t, ts_u, "ro", linewidth=2, label="time-stepping")
+plt.plot(ts_t, ts_u, "rx", linewidth=2, label="time-stepping")
 plt.plot(st_t, st_u, "go", linewidth=2, label="space-time")
 plt.xlabel("$t$")
 plt.ylabel("$u$")
