@@ -178,16 +178,3 @@ u_plotter.view_xy()
 if not pv.OFF_SCREEN:
     u_plotter.show()
 
-# Get the parent mixed space DOF coordinates
-parent_coords = W.sub(1).collapse()[0].tabulate_dof_coordinates()
-
-# Get the dofmap from the subspace to the parent space
-dofmap = W.sub(0).dofmap.list.copy()
-
-# Map the subspace DOFs at t=0 to parent DOFs
-parent_dofs_u_initial = dofmap[dofs_u_initial]
-
-# Now get the coordinates for the initial condition DOFs
-coords_init = parent_coords[parent_dofs_u_initial]
-print("Initial condition coordinates (should be t=0):")
-print(coords_init)
