@@ -1,3 +1,4 @@
+"""non-dimensional hyperbolic PDE in space-time, first order formulation"""
 from mpi4py import MPI
 import dolfinx
 from dolfinx.fem.petsc import LinearProblem
@@ -6,6 +7,8 @@ import ufl
 import numpy as np
 import matplotlib.pyplot as plt
 import pyvista as pv
+from petsc4py.PETSc import ScalarType
+from dolfinx import default_scalar_type
 
 domain = dolfinx.mesh.create_unit_square(MPI.COMM_WORLD, 4, 8, dolfinx.mesh.CellType.quadrilateral)
 
@@ -50,11 +53,7 @@ initial_u_dofs = dolfinx.fem.locate_dofs_topological((W0,U), domain.topology.dim
 initial_v_dofs = dolfinx.fem.locate_dofs_topological((W1,V), domain.topology.dim - 1, initial_time_facets)
 
 leftright_u = dolfinx.fem.Function(U)
-def leftright_f(x):
-    values = np.zeros((1, x.shape[1]))
-    values[0, :] = 0.0*x[0]
-    return values
-leftright_u.interpolate(leftright_f)
+leftright_u.x.array[:] = 0.0
 leftright_u_bc = dolfinx.fem.dirichletbc(leftright_u, leftright_u_dofs, W0)
 
 initial_u = dolfinx.fem.Function(U)
@@ -83,6 +82,7 @@ u_plot = w_sol.sub(0).collapse()
 u_grid = pv.UnstructuredGrid(*dolfinx.plot.vtk_mesh(u_plot.function_space))
 u_grid.point_data["u"] = u_plot.x.array
 plotter_u = pv.Plotter()
-plotter_u.add_mesh(u_grid, show_edges=True)
-plotter_u.view_xy()
+u_warped = u_grid.warp_by_scalar()
+plotter_u.add_mesh(u_warped, show_edges=True)
+#plotter_u.view_xy()
 plotter_u.show()
