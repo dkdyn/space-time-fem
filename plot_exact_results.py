@@ -1,12 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "serif",
-    "font.size": 16
-})
+import pyvista as pv
 
 # Create a grid of x and t values
 x = np.linspace(0, 1, 100)
@@ -14,30 +7,33 @@ t = np.linspace(0, 1, 100)
 X, T = np.meshgrid(x, t, indexing='ij')
 
 # Compute the function values
-#U = np.sin(np.pi*X) * np.exp(-T*np.pi**2)
-U = np.sin(np.pi*X) * np.cos(T*np.pi)
+#U = np.sin(np.pi*X) * np.cos(np.pi*T)   # hyper
+U = np.sin(np.pi*X) * np.exp(-(np.pi**2)*T)  # exponential decay
 
-# Plot
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
+# Prepare points for PyVista StructuredGrid
+points = np.zeros((X.size, 3))
+points[:, 0] = X.ravel(order="F")
+points[:, 1] = T.ravel(order="F")
+points[:, 2] = U.ravel(order="F")
 
-# Plot the colored surface
-surf = ax.plot_surface(X, T, U, cmap='viridis', edgecolor='none', alpha=0.95)
+# Create the StructuredGrid
+grid = pv.StructuredGrid()
+grid.points = points
+grid.dimensions = [X.shape[0], X.shape[1], 1]
+grid["u"] = U.ravel(order="F")
 
-# Overlay the wireframe grid lines (coarser for clarity)
-ax.plot_wireframe(X, T, U, color='k', linewidth=0.5, rstride=10, cstride=10)
-
-ax.set_xlabel(r'$x$')
-ax.set_ylabel(r'$t$')
-ax.set_zlabel(r'$u$')
-ax.view_init(elev=28, azim=51)
-
-# Hide the background panes but keep grid lines
-for axis in [ax.xaxis, ax.yaxis, ax.zaxis]:
-    axis.pane.set_edgecolor('w')
-    axis.pane.set_alpha(0)
-
-plt.tight_layout()
-#plt.savefig("plot_para_exact.pdf")
-plt.savefig("plot_hyper_exact.pdf")
-plt.show()
+# Plot with PyVista
+plotter = pv.Plotter()
+plotter.add_mesh(grid, scalars="u", cmap="viridis", show_edges=False)
+#plotter.view_xy()
+plotter.show_grid()
+plotter.add_axes()
+plotter.show_bounds(
+    xlabel="x",
+    ylabel="t",
+    zlabel="u"
+)
+#plotter.show_bounds
+#plotter.renderer.SetYAxisLabel("t")
+#plotter.renderer.SetZAxisLabel("u")
+plotter.show(title="Exact solution: $u(x,t) = \sin(\pi x)\cos(\pi t)$")

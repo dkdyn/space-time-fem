@@ -98,7 +98,7 @@ for n in range(nt):
     x_coords = V.tabulate_dof_coordinates()[:, 0]
     sort_order = np.argsort(x_coords)
     u_values = uh.x.array
-    u_sol[n, :] =  u_values[sort_order]
+    u_sol[n+1, :] =  u_values[sort_order]
 
 
 # --- 8. Plot solution ---
