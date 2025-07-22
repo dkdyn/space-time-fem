@@ -1,3 +1,4 @@
+""" Solving the non-dimensional hyperbolic PDE in space-time using a second-order formulation. """
 import numpy as np
 import ufl
 from dolfinx import geometry
@@ -12,10 +13,9 @@ import matplotlib.pyplot as plt
 # Space-time mesh
 nx = 4
 nt = 8
-t_f = 1.0  # Final time
 domain = mesh.create_rectangle(
     MPI.COMM_WORLD,
-    [np.array([0, 0]), np.array([1, t_f])],
+    [np.array([0, 0]), np.array([1, 1])],
     [nx, nt],
     cell_type=mesh.CellType.triangle,
 )
@@ -24,7 +24,7 @@ domain = mesh.create_rectangle(
 V = fem.functionspace(domain, ("Lagrange", 1))
 
 # --- 2. Define Boundary Conditions ---
-# Locate facets for boundary conditions
+# Locate facets for boundary conditions (initial time and left/right boundaries)
 fdim = domain.topology.dim - 1
 facets_t0 = mesh.locate_entities_boundary(domain, fdim, lambda x: np.isclose(x[1], 0.0))
 facets_space = mesh.locate_entities_boundary(
@@ -77,52 +77,16 @@ problem = LinearProblem(
 )
 uh = problem.solve()
 
-# Extract u and v components
-#u_sol = uh.collapse()
-
-# Print statistics for u
-print("u min:", np.nanmin(uh.x.array))
-print("u max:", np.nanmax(uh.x.array))
-print("u mean:", np.nanmean(uh.x.array))
-print("u contains NaN:", np.isnan(uh.x.array).any())
+# --- 5. Post-processing and Visualization ---
 
 u_topology, u_cell_types, u_geometry = plot.vtk_mesh(V)
 u_grid = pyvista.UnstructuredGrid(u_topology, u_cell_types, u_geometry)
 u_grid.point_data["u"] = uh.x.array.real
 u_grid.set_active_scalars("u")
 u_plotter = pyvista.Plotter()
-u_plotter.add_mesh(u_grid, show_edges=True)
-u_plotter.view_xy()
+u_warped = u_grid.warp_by_scalar()
+u_plotter.add_mesh(u_warped, show_edges=True)
+#u_plotter.view_xy()
 if not pyvista.OFF_SCREEN:
     u_plotter.show()
 
-tol = 0.00  # Avoid hitting the outside of the domain
-xp = np.linspace(0 + tol, 1 - tol, 9)  # actually time points 
-points = np.zeros((3, 9))
-points[0] = 0.5*np.ones_like(xp)  #
-points[1] = xp
-
-u_values = []
-
-bb_tree = geometry.bb_tree(domain, domain.topology.dim)
-
-cells = []
-points_on_proc = []
-# Find cells whose bounding-box collide with the the points
-cell_candidates = geometry.compute_collisions_points(bb_tree, points.T)
-# Choose one of the cells that contains the point
-colliding_cells = geometry.compute_colliding_cells(domain, cell_candidates, points.T)
-for i, point in enumerate(points.T):
-    if len(colliding_cells.links(i)) > 0:
-        points_on_proc.append(point)
-        cells.append(colliding_cells.links(i)[0])
-
-points_on_proc = np.array(points_on_proc, dtype=np.float64)
-u_values = uh.eval(points_on_proc, cells)
-
-t_values = points_on_proc[:, 1]
-plt.plot(t_values, u_values, "k", linewidth=2, label="u")
-plt.show()
-
-# Save t_values and u_values to a CSV file
-np.savetxt("results_hyper_space_time_2order.csv", np.column_stack([t_values, u_values]), delimiter=",", header="t,u", comments='')
