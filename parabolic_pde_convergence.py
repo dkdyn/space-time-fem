@@ -15,13 +15,70 @@ from dolfinx.fem import (Constant, Function, functionspace, dirichletbc,
                          form)
 from dolfinx.fem.petsc import LinearProblem
 from dolfinx.fem import locate_dofs_geometrical
-
+from dolfinx import plot
 from dolfinx.mesh import create_interval
+from dolfinx import mesh
 from mpi4py import MPI
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import pyvista as pv
 
+
 comm = MPI.COMM_WORLD
+
+def space_time_fem(nx, nt, T):
+    # Create a 2D mesh for the space-time domain: (x, t) in [0,1]x[0,1]
+    domain = mesh.create_rectangle(comm,
+                            [np.array([0, 0]), np.array([1, 1])],
+                            [nx, nt],
+                            cell_type=mesh.CellType.quadrilateral)
+
+    # Use Lagrange polynomials of degree 1 on the space-time mesh
+    V = functionspace(domain, ("Lagrange", 1))
+
+    # ---   2. Define boundary and initial conditions   ---
+
+    # Define the initial, i.e. time boundary, condition u(x, 0)
+    def initial_condition_func(x):
+        return np.sin(np.pi * x[0])
+
+    u_initial = Function(V)
+    u_initial.interpolate(initial_condition_func)
+    initial_dofs = locate_dofs_geometrical(V, lambda x: np.isclose(x[1], 0))
+    bc_initial = dirichletbc(u_initial, initial_dofs)
+
+    # Define the spatial boundary condition u(0, t)
+    left_boundary_dofs = locate_dofs_geometrical(V, lambda x: np.isclose(x[0], 0))
+    bc_left = dirichletbc(np.float64(0.0), left_boundary_dofs, V)
+
+    # Define the spatial boundary condition u(1, t) 
+    right_boundary_dofs = locate_dofs_geometrical(V, lambda x: np.isclose(x[0], 1))
+    bc_right = dirichletbc(np.float64(0.0), right_boundary_dofs, V)
+
+    # Combine all boundary conditions (space and time)
+    bcs = [bc_initial, bc_left, bc_right]
+
+    # ---   3. Define the variational problem   ---
+    u = ufl.TrialFunction(V)
+    v = ufl.TestFunction(V)
+
+    # Weak form: ∫(du/dt*v + alpha*du/dx*dv/dx) dV = 0
+    # du/dx = grad(u)[0] and du/dt = grad(u)[1]
+    # The domain of integration dV is now the entire space-time mesh.
+    a = (ufl.grad(u)[1] * v + ufl.grad(u)[0] * ufl.grad(v)[0]) * ufl.dx
+    L = Constant(domain, np.float64(0.0)) * v * ufl.dx # Homogeneous PDE
+
+
+    # ---   4. Set up solver and solve   ---
+    # This solves for the entire space-time solution at once.
+    problem = LinearProblem(a, L, bcs=bcs, petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
+    uh = problem.solve()
+    uh.name = "u_spacetime"
+
+    u_topology, u_cell_types, u_geometry = plot.vtk_mesh(V)
+    u_grid = pv.UnstructuredGrid(u_topology, u_cell_types, u_geometry)
+    u_grid.point_data["u"] = uh.x.array.real
+
+    return u_grid
 
 def time_stepping(nx,nt, T):
     dt_val = T / nt     # Time step size    
@@ -80,9 +137,9 @@ def time_stepping(nx,nt, T):
     t = 0.0
     u_sol = np.zeros((nt+1, nx+1))
     u_sol[0, :] = u_n.x.array
-    print("Starting time-stepping loop...")
+    #print("Starting time-stepping loop...")
     for n in range(nt):
-        print(t)
+        #print(t)
         t += dt_val
 
         # Solve the linear problem for the current time step
@@ -96,7 +153,7 @@ def time_stepping(nx,nt, T):
         #print(x_coords[sort_order])
         u_values = uh.x.array
         u_sol[n+1, :] =  u_values[sort_order]
-    
+
     return u_sol
 
 T = 1.0             # Total simulation time
@@ -105,36 +162,89 @@ nx = 4 # Number of elements in the spatial mesh
 
 u_ts = time_stepping(nx, nt, T)
 
+x = np.linspace(0, 1, 5)
+t = np.linspace(0, 1, 9)
+XX, TT = np.meshgrid(x, t, indexing='ij')
+U = np.sin(np.pi*XX) * np.exp(-(np.pi**2)*TT)  # exponential decay
 
 
-xt = np.meshgrid(np.linspace(0, 1, nx+1), np.linspace(0, T, nt+1), indexing='ij')
-X, T = xt  # X: space, T: time, both shape (nx+1, nt+1)
+xt = np.meshgrid(x, t, indexing='ij')
+XX, TT = xt  # X: space, T: time, both shape (nx+1, nt+1)
 
-#TODO get here error from exact solution!
-u_grid = u_ts.T  # shape (nx+1, nt+1)
-print(u_grid.shape)
+u_st = np.abs(u_ts.T - U)  # shape (nx+1, nt+1)
+#print(u_grid.shape)
 
-#TODO for space-time
-# for i in range(u_grid.n_points):
-#     coord = u_grid.points[i]
-#     value = u_grid.point_data["u"][i]
-#     print(f"Point {i}: (x, t) = {coord}, u = {value}")
 
-points = np.zeros((X.size, 3))
-points[:, 0] = X.ravel(order="F")  # x
-points[:, 1] = T.ravel(order="F")  # t
-points[:, 2] = u_grid.ravel(order="F")  # u as height
+points = np.zeros((XX.size, 3))
+points[:, 0] = XX.ravel(order="F")  # x
+points[:, 1] = TT.ravel(order="F")  # t
+#points[:, 2] = u_st.ravel(order="F")  # u as height
 
 # Create the structured grid
 grid = pv.StructuredGrid()
 grid.points = points
-grid.dimensions = [X.shape[0], X.shape[1], 1]
-grid["u"] = u_grid.ravel(order="F")
+grid.dimensions = [XX.shape[0], XX.shape[1], 1]
+grid["u"] = u_st.ravel(order="F")
 
 # Plot the surface
 plotter = pv.Plotter()
-plotter.add_mesh(grid, scalars="u", cmap="viridis", show_edges=True)
-#plotter.view_xy()
+plotter.add_mesh(grid, scalars="u", cmap="viridis", show_edges=True, clim=[0, 0.1])
+plotter.view_xy()
 plotter.show_grid()
 plotter.add_axes()
-plotter.show(title="u(x, t) surface plot")
+plotter.show(title="error in time-stepping")
+
+max_error = np.max(u_st)
+print(f"Maximum error time-stepping: {max_error:.4e}")
+
+""" error plot for space-time FEM """
+u_st = space_time_fem(nx, nt, T)
+
+for i in range(u_st.n_points):
+    coord = u_st.points[i]
+    value = u_st.point_data["u"][i]
+    error = np.abs(value - np.sin(np.pi * coord[0])*np.exp(-coord[1]*np.pi**2))
+    u_st.point_data["u"][i] = error
+
+# Plot the surface
+plotter = pv.Plotter()
+plotter.add_mesh(u_st, scalars="u", cmap="viridis", show_edges=True, clim=[0, 0.1])
+plotter.view_xy()
+plotter.show_grid()
+plotter.add_axes()
+plotter.show(title="error in space-time FEM")
+
+max_error = np.max(u_st.point_data["u"])
+print(f"Maximum error space-time: {max_error:.4e}")
+
+
+""" convergence for both methods"""
+N=6
+
+ts_error = np.zeros(N)
+for i in range(N):
+    u_ts = time_stepping((2**i)*nx, (2**i)*nt, T)
+    
+    x = np.linspace(0, 1, (2**i)*nx+1)
+    t = np.linspace(0, 1, (2**i)*nt+1, T)
+    XX, TT = np.meshgrid(x, t, indexing='ij')
+    U = np.sin(np.pi*XX) * np.exp(-(np.pi**2)*TT)  # exponential decay
+    u_st = np.abs(u_ts.T - U)  # shape (nx+1, nt+1)
+    max_error = np.max(u_st)
+    ts_error[i] = max_error
+
+st_error = np.zeros(N)
+for i in range(N):
+    u_st = space_time_fem((i+1)*nx, (i+1)*nt, T)
+    for j in range(u_st.n_points):
+        coord = u_st.points[j]
+        value = u_st.point_data["u"][j]
+        error = np.abs(value - np.sin(np.pi * coord[0])*np.exp(-coord[1]*np.pi**2))
+        u_st.point_data["u"][j] = error
+    max_error = np.max(u_st.point_data["u"])
+    st_error[i] = max_error
+
+
+plt.semilogy(ts_error, 'ro-')
+plt.semilogy(st_error, 'go-')
+plt.show()
