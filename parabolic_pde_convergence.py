@@ -25,7 +25,7 @@ import pyvista as pv
 
 comm = MPI.COMM_WORLD
 
-def space_time_fem(nx, nt, T):
+def space_time_fem(nx, nt, order, T):
     # Create a 2D mesh for the space-time domain: (x, t) in [0,1]x[0,1]
     domain = mesh.create_rectangle(comm,
                             [np.array([0, 0]), np.array([1, 1])],
@@ -33,7 +33,7 @@ def space_time_fem(nx, nt, T):
                             cell_type=mesh.CellType.quadrilateral)
 
     # Use Lagrange polynomials of degree 1 on the space-time mesh
-    V = functionspace(domain, ("Lagrange", 1))
+    V = functionspace(domain, ("Lagrange", order))
 
     # ---   2. Define boundary and initial conditions   ---
 
@@ -80,12 +80,12 @@ def space_time_fem(nx, nt, T):
 
     return u_grid
 
-def time_stepping(nx,nt, T):
+def time_stepping(nx,nt, order, T):
     dt_val = T / nt     # Time step size    
     domain = create_interval(comm, nx, [0, 1])
 
     # Use Lagrange polynomials of degree 1 for the function space
-    V = functionspace(domain, ("Lagrange", 1))
+    V = functionspace(domain, ("Lagrange", order))
 
     # --- 3. Define initial condition ---
     # The initial temperature distribution is u(x, 0) = sin(pi*x)
@@ -135,8 +135,11 @@ def time_stepping(nx,nt, T):
 
 
     t = 0.0
-    u_sol = np.zeros((nt+1, nx+1))
-    u_sol[0, :] = u_n.x.array
+    x_coords = V.tabulate_dof_coordinates()[:, 0]
+    sort_order = np.argsort(x_coords)
+    u_sol = np.zeros((nt+1, order*nx+1))
+    u_sol[0, :] = u_n.x.array[sort_order]
+    #print(u_sol[0, :])
     #print("Starting time-stepping loop...")
     for n in range(nt):
         #print(t)
@@ -153,27 +156,22 @@ def time_stepping(nx,nt, T):
         #print(x_coords[sort_order])
         u_values = uh.x.array
         u_sol[n+1, :] =  u_values[sort_order]
-
+        #print(u_values[sort_order])
     return u_sol
 
 T = 1.0             # Total simulation time
 nt = 8              # Number of time steps
 nx = 4 # Number of elements in the spatial mesh
+order = 2  # Polynomial order for the finite element space
+u_ts = time_stepping(nx, nt, order, T)
 
-u_ts = time_stepping(nx, nt, T)
-
-x = np.linspace(0, 1, 5)
-t = np.linspace(0, 1, 9)
+x = np.linspace(0, 1, nx*order+1)  # Spatial mesh points
+t = np.linspace(0, 1, nt+1)
 XX, TT = np.meshgrid(x, t, indexing='ij')
 U = np.sin(np.pi*XX) * np.exp(-(np.pi**2)*TT)  # exponential decay
 
-
-xt = np.meshgrid(x, t, indexing='ij')
-XX, TT = xt  # X: space, T: time, both shape (nx+1, nt+1)
-
-u_st = np.abs(u_ts.T - U)  # shape (nx+1, nt+1)
-#print(u_grid.shape)
-
+u_e = np.abs(u_ts.T - U)  
+#print(u_st.shape)
 
 points = np.zeros((XX.size, 3))
 points[:, 0] = XX.ravel(order="F")  # x
@@ -184,21 +182,22 @@ points[:, 1] = TT.ravel(order="F")  # t
 grid = pv.StructuredGrid()
 grid.points = points
 grid.dimensions = [XX.shape[0], XX.shape[1], 1]
-grid["u"] = u_st.ravel(order="F")
+grid["u"] = u_e.ravel(order="F")
 
 # Plot the surface
 plotter = pv.Plotter()
-plotter.add_mesh(grid, scalars="u", cmap="viridis", show_edges=True, clim=[0, 0.1])
+plotter.add_mesh(grid, scalars="u", cmap="viridis", show_edges=True)   # , clim=[0, 0.1]
 plotter.view_xy()
 plotter.show_grid()
 plotter.add_axes()
 plotter.show(title="error in time-stepping")
 
-max_error = np.max(u_st)
+max_error = np.max(u_e)
 print(f"Maximum error time-stepping: {max_error:.4e}")
 
-""" error plot for space-time FEM """
-u_st = space_time_fem(nx, nt, T)
+
+"""   ---   error plot for space-time FEM   ---"""
+u_st = space_time_fem(nx, nt, 2, T)
 
 for i in range(u_st.n_points):
     coord = u_st.points[i]
@@ -208,7 +207,7 @@ for i in range(u_st.n_points):
 
 # Plot the surface
 plotter = pv.Plotter()
-plotter.add_mesh(u_st, scalars="u", cmap="viridis", show_edges=True, clim=[0, 0.1])
+plotter.add_mesh(u_st, scalars="u", cmap="viridis", show_edges=True)   # , clim=[0, 0.1]
 plotter.view_xy()
 plotter.show_grid()
 plotter.add_axes()
@@ -223,10 +222,9 @@ N=6
 
 ts_error = np.zeros(N)
 for i in range(N):
-    u_ts = time_stepping((2**i)*nx, (2**i)*nt, T)
-    
-    x = np.linspace(0, 1, (2**i)*nx+1)
-    t = np.linspace(0, 1, (2**i)*nt+1, T)
+    u_ts = time_stepping((2**i)*nx, (2**i)*nt, order, T)
+    x = np.linspace(0, 1, (2**i)*nx*order+1)
+    t = np.linspace(0, 1, (2**i)*nt+1)
     XX, TT = np.meshgrid(x, t, indexing='ij')
     U = np.sin(np.pi*XX) * np.exp(-(np.pi**2)*TT)  # exponential decay
     u_st = np.abs(u_ts.T - U)  # shape (nx+1, nt+1)
@@ -235,7 +233,7 @@ for i in range(N):
 
 st_error = np.zeros(N)
 for i in range(N):
-    u_st = space_time_fem((i+1)*nx, (i+1)*nt, T)
+    u_st = space_time_fem((i+1)*nx, (i+1)*nt, order, T)
     for j in range(u_st.n_points):
         coord = u_st.points[j]
         value = u_st.point_data["u"][j]
@@ -247,4 +245,5 @@ for i in range(N):
 
 plt.semilogy(ts_error, 'ro-')
 plt.semilogy(st_error, 'go-')
+plt.legend(['TS'+str(order), 'ST'+str(order)])
 plt.show()

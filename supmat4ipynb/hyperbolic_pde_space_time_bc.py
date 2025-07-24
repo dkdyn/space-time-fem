@@ -15,9 +15,13 @@ from dolfinx import fem
 from dolfinx.fem.petsc import LinearProblem
 from dolfinx import plot
 
-domain = mesh.create_unit_square(MPI.COMM_WORLD, 4, 8, mesh.CellType.quadrilateral)
+nx = 4  # Number of spatial elements
+nt = 8  # Number of time elements
+order = 1  # Polynomial order
 
-V = functionspace(domain, ("Lagrange", 1))
+domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, nt, mesh.CellType.quadrilateral)
+
+V = functionspace(domain, ("Lagrange", order))
 
 uD = fem.Function(V)
 uD.interpolate(lambda x: np.sin(np.pi*x[0])*np.cos(np.pi*x[1]))

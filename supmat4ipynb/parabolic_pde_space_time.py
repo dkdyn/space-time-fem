@@ -32,15 +32,16 @@ import pyvista as pv
 comm = MPI.COMM_WORLD
 nx = 4 # Number of spatial elements
 nt = 8 # Number of temporal elements
+order = 1  # Polynomial order
 
 # Create a 2D mesh for the space-time domain: (x, t) in [0,1]x[0,1]
 domain = mesh.create_rectangle(comm,
                         [np.array([0, 0]), np.array([1, 1])],
                         [nx, nt],
-                        cell_type=mesh.CellType.quadrilateral)
+                        cell_type=mesh.CellType.quadrilateral) # TODO unit square
 
 # Use Lagrange polynomials of degree 1 on the space-time mesh
-V = functionspace(domain, ("Lagrange", 1))
+V = functionspace(domain, ("Lagrange", order))
 
 # ---   2. Define boundary and initial conditions   ---
 

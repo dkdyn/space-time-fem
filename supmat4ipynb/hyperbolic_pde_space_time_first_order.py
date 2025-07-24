@@ -5,15 +5,19 @@ from dolfinx.fem.petsc import LinearProblem
 import basix.ufl
 import ufl
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import pyvista as pv
-from petsc4py.PETSc import ScalarType
+#from petsc4py.PETSc import ScalarType
 from dolfinx import default_scalar_type
 
-domain = dolfinx.mesh.create_unit_square(MPI.COMM_WORLD, 4, 8, dolfinx.mesh.CellType.quadrilateral)
+nx = 4  # Number of spatial elements
+nt = 8  # Number of time elements
+order = 1  # Polynomial order
 
-el_u = basix.ufl.element("Lagrange", domain.basix_cell(), 1)
-el_v = basix.ufl.element("Lagrange", domain.basix_cell(), 1)
+domain = dolfinx.mesh.create_unit_square(MPI.COMM_WORLD, nx, nt, dolfinx.mesh.CellType.quadrilateral)
+
+el_u = basix.ufl.element("Lagrange", domain.basix_cell(), order)
+el_v = basix.ufl.element("Lagrange", domain.basix_cell(), order)
 el_mixed = basix.ufl.mixed_element([el_u, el_v])
 
 W = dolfinx.fem.functionspace(domain, el_mixed)

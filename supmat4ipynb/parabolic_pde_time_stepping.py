@@ -29,10 +29,11 @@ dt_val = T / nt     # Time step size
 # --- 2. Create mesh and define function space ---
 comm = MPI.COMM_WORLD
 nx = 4 # Number of elements in the spatial mesh
-domain = create_interval(comm, nx, [0, 1])
+order = 2  # Polynomial order of spatial elements (time-stepping is fixed)
+domain = create_interval(comm, nx, [0, 1])   # TODO unit interval?
 
 # Use Lagrange polynomials of degree 1 for the function space
-V = functionspace(domain, ("Lagrange", 1))
+V = functionspace(domain, ("Lagrange", order))
 
 # --- 3. Define initial condition ---
 # The initial temperature distribution is u(x, 0) = sin(pi*x)
@@ -82,9 +83,10 @@ problem = LinearProblem(problem_a, problem_L, bcs=bcs, u=uh, petsc_options={"ksp
 
 
 t = 0.0
-u_sol = np.zeros((nt+1, nx+1))
-u_sol[0, :] = u_n.x.array
-print("Starting time-stepping loop...")
+x_coords = V.tabulate_dof_coordinates()[:, 0]
+sort_order = np.argsort(x_coords)
+u_sol = np.zeros((nt+1, nx*order+1))
+u_sol[0, :] = u_n.x.array[sort_order]
 for n in range(nt):
     print(t)
     t += dt_val
@@ -102,7 +104,7 @@ for n in range(nt):
 
 
 # --- 8. Plot solution ---
-xt = np.meshgrid(np.linspace(0, 1, nx+1), np.linspace(0, T, nt+1), indexing='ij')
+xt = np.meshgrid(np.linspace(0, 1, nx*order+1), np.linspace(0, T, nt+1), indexing='ij')
 X, T = xt  # X: space, T: time, both shape (nx+1, nt+1)
 
 u_grid = u_sol.T  # shape (nx+1, nt+1)
@@ -121,7 +123,7 @@ grid["u"] = u_grid.ravel(order="F")
 # Plot the surface
 plotter = pv.Plotter()
 plotter.add_mesh(grid, scalars="u", cmap="viridis", show_edges=True)
-plotter.view_xy()
+#plotter.view_xy()
 plotter.show_grid()
 plotter.add_axes()
 plotter.show(title="u(x, t) surface plot")

@@ -5,7 +5,7 @@ import dolfinx
 from dolfinx import geometry
 from dolfinx.fem import Function, form
 from dolfinx.fem.petsc import LinearProblem
-from dolfinx.mesh import create_interval
+from dolfinx.mesh import create_unit_interval
 from dolfinx.io import VTXWriter
 from ufl import TrialFunction, TestFunction, dx, inner, grad, sin, pi, SpatialCoordinate
 from petsc4py import PETSc
@@ -16,15 +16,17 @@ import pyvista as pv
 
 
 nx = 4  # Number of spatial cells
-nt = 8
+nt = 8 # observation, may not be less the 2*nx*order
+order = 1 # for spatial FEM only (time-stepping is fixed)
+
 T = 1.0  # Total time (unit interval)
 dt = T/nt  # Time step on unit interval
 
 
 # 1. Mesh and Function Space
-domain = create_interval(MPI.COMM_WORLD, nx, [0.0, 1.0])
+domain = create_unit_interval(MPI.COMM_WORLD, nx)   # TODO
 #V = dolfinx.fem.function.functionspace(mesh, ("CG", 1))   # unit length
-V = dolfinx.fem.functionspace(domain, ("Lagrange", 1))
+V = dolfinx.fem.functionspace(domain, ("Lagrange", order))
 
 # 2. Define trial and test functions
 u = TrialFunction(V)
@@ -36,7 +38,7 @@ u_n_minus_1 = Function(V)  # u at previous time step (n-1)
 u_n_plus_1 = Function(V)  # u at next time step (n+1)
 
 # 4. Initial conditions
-x = SpatialCoordinate(domain)
+#x = SpatialCoordinate(domain)
 u_n.interpolate(lambda x: np.sin(np.pi * x[0]))
 u_n_minus_1.interpolate(lambda x: np.sin(np.pi * x[0])) # Assuming zero initial velocity, i.a. same displacements on the time before start
 
@@ -73,8 +75,10 @@ problem = LinearProblem(a, L_expr, bcs=bcs, u=u_n_plus_1,
 
 # 8. Time-stepping loop
 t = 0.0
-u_sol = np.zeros((nt+1, nx+1))
-u_sol[0, :] = u_n.x.array
+x_coords = V.tabulate_dof_coordinates()[:, 0]
+sort_order = np.argsort(x_coords)
+u_sol = np.zeros((nt+1, order*nx+1))
+u_sol[0, :] = u_n.x.array[sort_order]
 for n in range(nt):
     t += dt
 
@@ -93,7 +97,7 @@ for n in range(nt):
     u_sol[n+1, :] =  u_values[sort_order]
 
 # --- 8. Plot solution ---
-xt = np.meshgrid(np.linspace(0, 1, nx+1), np.linspace(0, T, nt+1), indexing='ij')
+xt = np.meshgrid(np.linspace(0, 1, order*nx+1), np.linspace(0, T, nt+1), indexing='ij')
 X, T = xt  # X: space, T: time, both shape (nx+1, nt+1)
 
 u_grid = u_sol.T  # shape (nx+1, nt+1)

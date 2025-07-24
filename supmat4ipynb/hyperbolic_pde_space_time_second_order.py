@@ -6,22 +6,19 @@ from dolfinx import fem, mesh, plot
 from dolfinx.fem.petsc import LinearProblem
 from mpi4py import MPI
 from petsc4py.PETSc import ScalarType
-import pyvista
+import pyvista as pv
 import matplotlib.pyplot as plt
 
 # --- 1. Problem Setup ---
 # Space-time mesh
 nx = 4
 nt = 8
-domain = mesh.create_rectangle(
-    MPI.COMM_WORLD,
-    [np.array([0, 0]), np.array([1, 1])],
-    [nx, nt],
-    cell_type=mesh.CellType.triangle,
-)
+order = 1  # Polynomial order
+
+domain = mesh.create_unit_square(MPI.COMM_WORLD, nx, nt, mesh.CellType.quadrilateral)
 
 # Function space (using quadratic elements for better accuracy)
-V = fem.functionspace(domain, ("Lagrange", 1))
+V = fem.functionspace(domain, ("Lagrange", order))
 
 # --- 2. Define Boundary Conditions ---
 # Locate facets for boundary conditions (initial time and left/right boundaries)
@@ -80,13 +77,13 @@ uh = problem.solve()
 # --- 5. Post-processing and Visualization ---
 
 u_topology, u_cell_types, u_geometry = plot.vtk_mesh(V)
-u_grid = pyvista.UnstructuredGrid(u_topology, u_cell_types, u_geometry)
+u_grid = pv.UnstructuredGrid(u_topology, u_cell_types, u_geometry)
 u_grid.point_data["u"] = uh.x.array.real
 u_grid.set_active_scalars("u")
-u_plotter = pyvista.Plotter()
+u_plotter = pv.Plotter()
 u_warped = u_grid.warp_by_scalar()
 u_plotter.add_mesh(u_warped, show_edges=True)
 #u_plotter.view_xy()
-if not pyvista.OFF_SCREEN:
+if not pv.OFF_SCREEN:
     u_plotter.show()
 
