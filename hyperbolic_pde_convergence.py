@@ -17,6 +17,7 @@ from petsc4py.PETSc import ScalarType
 from petsc4py import PETSc
 from ufl import TrialFunction, TestFunction, dx, inner, grad, sin, pi, SpatialCoordinate
 import matplotlib.pyplot as plt
+import sys
 
 def space_time_bc(nx, nt, order, T):
     domain = mesh.create_rectangle(
@@ -294,9 +295,9 @@ def time_stepping(nx, nt, order, T):
 """
 
 nx = 4
-nt = 8     # must be greater than 2*nx*order (on unit square) for stability
+nt = 16     # must be greater than 2*nx*order (on unit square) for stability
 order = 1
-T = 1.0
+T = 2.0
 
 """   ---  Error in Time-Stepping   ---   """
 u_ts = time_stepping(nx, nt, order, T)
@@ -322,16 +323,18 @@ grid["u"] = u_err.ravel(order="F")
 
 # Plot the surface
 plotter = pv.Plotter()
-plotter.add_mesh(grid, scalars="u", cmap="viridis", show_edges=True, scalar_bar_args={"vertical": True})   # , clim=[0, 0.1]
+plotter.add_mesh(grid, scalars="u", cmap="viridis", show_edges=True, clim=[0, 0.4], show_scalar_bar=False)   
 plotter.view_xy()
-plotter.show_grid()
-plotter.add_axes()
+#plotter.camera_position = [(0.5, 0.5, 10), (0.5, 0.5, 0), (0, 1, 0)]
+plotter.show_bounds(xlabel="space",ylabel="time",use_2d=True,n_xlabels=2,n_ylabels=2, font_size=10, bold=False, fmt='%d')
+#plotter.reset_camera()
 plotter.show(title="error in time-stepping")
+plotter.screenshot("error_TS.png")
 
 max_error = np.max(u_err)
 print(f"Maximum error time-stepping: {max_error:.4e}")
 
-
+sys.exit()
 """   ---   Error in Space-Time BC formulation   ---   """
 u_stbc = space_time_bc(nx, nt, order, T)
 
@@ -343,11 +346,13 @@ for i in range(u_stbc.n_points):
 
 # Plot the surface
 plotter = pv.Plotter()
-plotter.add_mesh(u_stbc, scalars="u", cmap="viridis", show_edges=True, scalar_bar_args={"vertical": True})   # , clim=[0, 0.1]
-plotter.view_xy()
+plotter.add_mesh(u_stbc, scalars="u", cmap="viridis", show_edges=True, clim=[0, 0.65], scalar_bar_args={"vertical": True, "title": "error"})   
+plotter.show_bounds(xtitle="x",ytitle="t")
 plotter.show_grid()
 plotter.add_axes()
 plotter.show(title="error in space-time FEM BC")
+
+plotter.screenshot("error_STbc.png")
 
 max_error = np.max(u_stbc.point_data["u"])
 print(f"Maximum error space-time BC: {max_error:.4e}")
@@ -364,11 +369,12 @@ for i in range(u_st1.n_points):
 
 # Plot the surface
 plotter = pv.Plotter()
-plotter.add_mesh(u_st1, scalars="u", cmap="viridis", show_edges=True, scalar_bar_args={"vertical": True})   # , clim=[0, 0.1]
-plotter.view_xy()
+plotter.add_mesh(u_st1, scalars="u", cmap="viridis", show_edges=True, clim=[0, 0.65], show_scalar_bar=False)   
+plotter.show_bounds(xtitle="x",ytitle="t")
 plotter.show_grid()
 plotter.add_axes()
 plotter.show(title="error in space-time FEM 1.order")
+plotter.screenshot("error_ST1o.png")
 
 max_error = np.max(u_st1.point_data["u"])
 print(f"Maximum error space-time 1.order: {max_error:.4e}")
@@ -385,18 +391,19 @@ for i in range(u_st2.n_points):
 
 # Plot the surface
 plotter = pv.Plotter()
-plotter.add_mesh(u_st2, scalars="u", cmap="viridis", show_edges=True, scalar_bar_args={"vertical": True})   # , clim=[0, 0.1]
-plotter.view_xy()
+plotter.add_mesh(u_st2, scalars="u", cmap="viridis", show_edges=True, clim=[0, 0.65], show_scalar_bar=False)   
+plotter.show_bounds(xtitle="x",ytitle="t")
 plotter.show_grid()
 plotter.add_axes()
 plotter.show(title="error in space-time FEM BC 2.order")
+plotter.screenshot("error_ST2o.png")
 
 max_error = np.max(u_st2.point_data["u"])
 print(f"Maximum error space-time 2.order: {max_error:.4e}")
 
 
 """ convergence for all methods"""
-N=2
+N=3   # mesh refinements
 
 ts_error = np.zeros(N)
 for i in range(N):
@@ -440,9 +447,14 @@ for i in range(N):
     max_error = np.max(u_st2.point_data["u"])
     st2_error[i] = max_error
 
+labels = ["$2^0$", "$2^1$", "$2^2$"]  # or any custom labels, length N
 plt.semilogy(ts_error, 'ko-')
 plt.semilogy(stbc_error, 'ro-')
 plt.semilogy(st1_error, 'go-')
 plt.semilogy(st2_error, 'bo-')
-plt.legend(['TS'+str(order), 'STbc'+str(order), 'ST1o'+str(order), 'ST2o'+str(order)])
+plt.legend(['TS', 'STbc'+str(order), 'ST1o'+str(order), 'ST2o'+str(order)])
+plt.xticks(ticks=np.arange(len(labels)), labels=labels)
+plt.xlabel("refinement factor")
+plt.ylabel("error")
+plt.title("convergence")
 plt.show()
