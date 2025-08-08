@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/964545678.svg)](https://doi.org/10.5281/zenodo.16778715)
+
 Demonstration of the **Space-time FEM** for two prominent classes of PDEs, parabolic (heat equation) and hyperbolic (wave equation), and comparison with time-stepping methods.
 
 The Jupyter notebooks are supplements to the article "Tutorial on Space-time FEM with FEniCSx" 
