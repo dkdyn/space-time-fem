@@ -8,4 +8,4 @@ Python 		3.12.9
 fenics-dolfinx 	0.9.0
 pyvista 	0.45.3
 
-Author: Dominik Kern [![ORCID badge](https://img.shields.io/badge/ORCID-0000-0002-1958-2982-a6ce39?logo=orcid&logoColor=white)](https://orcid.org/0000-0002-1958-2982)
+Author: Dominik Kern [![ORCID badge](https://img.shields.io/badge/ORCID-0000--0002--1958--2982-a6ce39?logo=orcid&logoColor=white)](https://orcid.org/0000-0002-1958-2982)
