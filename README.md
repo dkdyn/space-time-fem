@@ -11,3 +11,5 @@ Tested with
 - pyvista 	0.45.3
 
 Author: Dominik Kern [![ORCID](https://img.shields.io/badge/ORCID-0000--0002--1958--2982-a6ce39?logo=orcid&logoColor=white)](https://orcid.org/0000-0002-1958-2982)
+
+!! Work in progress, a bug in the second-order formulation of the space-time FEM for the hyperbolic PDE needs to be fixed !!
